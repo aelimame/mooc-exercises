@@ -55,7 +55,7 @@ class LaneFilterNode(DTROS):
         # Create the filter
         self.filter = LaneFilterHistogram(**self._filter)
         self.t_last_update = rospy.get_time()
-        self.last_update_stamp = self.t_last_update
+        self.last_update_stamp = rospy.Time.now() #self.t_last_update
 
         # Subscribers
         self.sub_segment_list = rospy.Subscriber(
@@ -109,6 +109,7 @@ class LaneFilterNode(DTROS):
         self.right_encoder_ticks_delta = right_encoder_msg.data - self.right_encoder_ticks
 
     def cbPredict(self, event):
+        #print("*** cbPredict ***")
         current_time = rospy.get_time()
         dt = current_time - self.t_last_update
         self.t_last_update = current_time
@@ -123,7 +124,11 @@ class LaneFilterNode(DTROS):
         self.left_encoder_ticks_delta = 0
         self.right_encoder_ticks_delta = 0
 
-        self.publishEstimate()
+        self.publishEstimate(self.last_update_stamp)
+        #if not isinstance(self.last_update_stamp, float):
+        #    self.publishEstimate(self.last_update_stamp)
+        #else:
+        #    print("-------------- float {} !!!!".format(self.last_update_stamp))
 
     def cbProcessSegments(self, segment_list_msg):
         """Callback to process the segments
@@ -134,16 +139,18 @@ class LaneFilterNode(DTROS):
         """
 
         self.last_update_stamp = segment_list_msg.header.stamp
+        #print(self.last_update_stamp)
 
         # Get actual timestamp for latency measurement
         timestamp_before_processing = rospy.Time.now()
+        #print(timestamp_before_processing)
 
         # Step 2: update
         self.filter.update(segment_list_msg.segments)
 
-        self.publishEstimate(segment_list_msg)
+        self.publishEstimate(segment_list_msg.header.stamp)
 
-    def publishEstimate(self, segment_list_msg=None):
+    def publishEstimate(self, timestamp):
 
         [d_max, phi_max] = self.filter.getEstimate()
         # print "d_max = ", d_max
@@ -151,7 +158,9 @@ class LaneFilterNode(DTROS):
 
         # build lane pose message to send
         lanePose = LanePose()
-        lanePose.header.stamp = segment_list_msg.header.stamp
+        #if segment_list_msg is not None:
+        #print("segment_list_msg{}\n".format(segment_list_msg.header))
+        lanePose.header.stamp = timestamp
         lanePose.d = d_max
         lanePose.phi = phi_max
         lanePose.in_lane = True
