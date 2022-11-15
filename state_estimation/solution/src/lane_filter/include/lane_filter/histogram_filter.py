@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[24]:
+# In[106]:
 
 
 # start by importing some things we will need
@@ -12,7 +12,7 @@ from scipy.ndimage.filters import gaussian_filter
 from scipy.stats import entropy, multivariate_normal
 from math import floor, sqrt
 
-# In[28]:
+# In[110]:
 
 
 # Now let's define the prior function. In this case we choose
@@ -25,7 +25,7 @@ def histogram_prior(belief, grid_spec, mean_0, cov_0):
     belief = RV.pdf(pos)
     return belief
 
-# In[48]:
+# In[123]:
 
 
 # Now let's define the predict function
@@ -53,18 +53,12 @@ def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_
         alpha = 2*np.pi/enc_res # rotation per tick in radians 
         
         # Left wheel rotation left_phi
-        # TODO is left_encoder_ticks delta or total?
         delta_left_phi = left_encoder_ticks * alpha
         
         # Right wheel rotaion right_phi
         delta_right_phi = right_encoder_ticks * alpha
         
-        print("delta_left_phi: {:0.3}, delta_right_phi: {:0.3}".format(delta_left_phi, delta_right_phi))
-        
-        #angle =  (20/135) * 2*np.pi
-        #rad_per_sec = (angle / delta_t)
-        #rad_per_sec *180/np.pi
-        #rad_per_sec * robot_spec["wheel_radius"]
+        #print("delta_left_phi: {:0.3}, delta_right_phi: {:0.3}".format(delta_left_phi, delta_right_phi))
         
         # Forward speed v
         v = (r/2) * (delta_right_phi + delta_left_phi) / delta_t
@@ -72,23 +66,23 @@ def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_
         # Angular rate w
         w = (r/(2*l)) * (delta_right_phi - delta_left_phi) / delta_t
         
-        print("v: {:0.3}, w: {:0.3}".format(v, w))
+        #print("v: {:0.3}, w: {:0.3}".format(v, w))
         
-        # From v and w we can derivate the and the delta_phi:
+        # From v and w we can derivate the and delta_d the delta_phi:
         v_lateral = v * np.sin(w) # This is lateral speed toward left relative to d=0 line
         delta_d = v_lateral * delta_t # Convert to distance, this needs to be substracted from d_t
         
         delta_phi = w * delta_t # Convert to angle from rate, this needs to be added to phi_t
         
-        print("delta_d: {:0.3}, delta_phi: {:0.3}".format(delta_d, delta_phi))
+        #print("delta_d: {:0.3}, delta_phi: {:0.3}".format(delta_d, delta_phi))
         
         # TODO propagate each centroid forward using the kinematic function
         d_t = grid_spec['d'] + delta_d # replace this with something that adds the new odometry
         phi_t = grid_spec['phi'] + delta_phi # replace this with something that adds the new odometry
         
-        print("d_t.min: {:0.3}, d_t.max: {:0.3}".format(d_t.min(), d_t.max()))
-        print("phi_t.min: {:0.3}, phi_t.max: {:0.3}".format(phi_t.min(), phi_t.max()))
-        print("--")
+        #print("d_t.min: {:0.3}, d_t.max: {:0.3}".format(d_t.min(), d_t.max()))
+        #print("phi_t.min: {:0.3}, phi_t.max: {:0.3}".format(phi_t.min(), phi_t.max()))
+        #print("--")
 
         p_belief = np.zeros(belief.shape)
 
@@ -136,9 +130,9 @@ def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_
 
                     # If the new i and j are causing a jump of over the defined MAX thresholds (above)
                     # ignore this update since it is likely just noise
-#                    if np.abs(d_diff_i) >= MAX_belief_i_jump or np.abs(phi_diff_j) >= MAX_belief_j_jump:
-#                        #print("out")
-#                        continue
+                    #if np.abs(d_diff_i) >= MAX_belief_i_jump or np.abs(phi_diff_j) >= MAX_belief_j_jump:
+                    #    #print("out")
+                    #    continue
 
                     # We may still end up outside of bounds because of ceil() and floor()
                     if i_new >= belief.shape[0] or j_new >= belief.shape[1]:
@@ -159,7 +153,7 @@ def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_
         return belief
 
 
-# In[35]:
+# In[86]:
 
 
 # We will start by doing a little bit of processing on the segments to remove anything that is behing the robot (why would it be behind?)
@@ -179,7 +173,7 @@ def prepare_segments(segments):
         filtered_segments.append(segment)
     return filtered_segments
 
-# In[36]:
+# In[87]:
 
 
 
@@ -219,7 +213,7 @@ def generate_vote(segment, road_spec):
 
     return d_i, phi_i
 
-# In[37]:
+# In[88]:
 
 
 def generate_measurement_likelihood(segments, road_spec, grid_spec):
@@ -241,11 +235,6 @@ def generate_measurement_likelihood(segments, road_spec, grid_spec):
         # Offsets ("middle of the grid") since the indexing starts from 0 not negatives
         d0_i_offset = grid_spec['d_min']/grid_spec['delta_d']
         phi0_j_offset = grid_spec['phi_min']/grid_spec['delta_phi']
-        
-        # OLD
-        #i = int(d_i/grid_spec['delta_d'] - d0_i_offset)
-        #j = int(phi_i/grid_spec['delta_phi'] - phi0_j_offset)
-        
         
         # Here we apply either floor() or ceil() depending on d_i sign, otherwise the 
         # conversion to indcies my lead to asymmetry 
@@ -279,7 +268,7 @@ def generate_measurement_likelihood(segments, road_spec, grid_spec):
     return measurement_likelihood
 
 
-# In[38]:
+# In[89]:
 
 
 def histogram_update(belief, segments, road_spec, grid_spec):
@@ -296,26 +285,29 @@ def histogram_update(belief, segments, road_spec, grid_spec):
         
         new_belief = belief * measurement_likelihood
         
-        # Option 1
+        # ** Option 1 **
+        # OLD: This was used before the bug causing the cbPredict() in the file filter_lane_node.py to fail.
         # If np.sum(new_belief) == 0 it is likely the belief is way off?
         # We completly reset the measurment as our belief
         # Otherwise normalize new_belief and used it as our belief
-        if np.sum(new_belief) == 0:
-            belief = measurement_likelihood
-        else:
-            belief = new_belief / np.sum(new_belief)
-        
-        # Option 2
-        # If np.sum(new_belief) == 0 it is likely the measurement is just noisy so ignore it?
-        # Other wise the normalize it and used it as our belief
-        #if np.sum(new_belief) != 0:
+        #if np.sum(new_belief) == 0:
+        #    belief = measurement_likelihood
+        #    belief = belief / np.sum(belief)
+        #else:
         #    belief = new_belief / np.sum(new_belief)
         
+        # ** Option 2 **
+        # This is after the bug fix in filter_lane_node.py
+        # Take older belief if new_belief == 0, otherwise take the new but normalized (it is likely the measurement is just noisy so ignore it?)
+        if np.sum(new_belief) != 0:
+            belief = new_belief / np.sum(new_belief)
             
-        # TEST Apply gaussian filter
+        # Apply gaussian filter, this helps for stabilty in the SIM
         filtered_belief = np.zeros(belief.shape)
-        gaussian_filter(belief, sigma=[0.8, 1.2], output=filtered_belief, mode="constant")
-        #gaussian_filter(belief, sigma=[0.5, 0.5], output=filtered_belief, mode="constant")
+        # Robot Home
+        gaussian_filter(belief, sigma=[0.6, 0.9], output=filtered_belief, mode="constant")
+        # SIM
+        #gaussian_filter(belief, sigma=[1.2, 1.4], output=filtered_belief, mode="constant")
         
         if np.sum(filtered_belief) != 0:
             belief = filtered_belief / np.sum(filtered_belief)
