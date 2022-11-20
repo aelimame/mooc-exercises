@@ -54,8 +54,6 @@ class LaneFilterNode(DTROS):
 
         # Create the filter
         self.filter = LaneFilterHistogram(**self._filter)
-        self.t_last_update = rospy.get_time()
-        self.last_update_stamp = rospy.Time.now() #self.t_last_update
 
         # Subscribers
         self.sub_segment_list = rospy.Subscriber(
@@ -87,6 +85,8 @@ class LaneFilterNode(DTROS):
         self.left_encoder_ticks = 0
         self.right_encoder_ticks_delta = 0
         self.left_encoder_ticks_delta = 0
+        self.last_encoder_stamp = None
+        
         # Set up a timer for prediction (if we got encoder data) since that data can come very quickly
         rospy.Timer(rospy.Duration(1 / self._predict_freq), self.cbPredict)
 
@@ -101,34 +101,28 @@ class LaneFilterNode(DTROS):
             self.filter.encoder_resolution = left_encoder_msg.resolution
             self.filter.initialized = True
         self.left_encoder_ticks_delta = left_encoder_msg.data - self.left_encoder_ticks
+        self.last_encoder_stamp = left_encoder_msg.header.stamp
 
     def cbProcessRightEncoder(self, right_encoder_msg):
         if not self.filter.initialized:
             self.filter.encoder_resolution = right_encoder_msg.resolution
             self.filter.initialized = True
         self.right_encoder_ticks_delta = right_encoder_msg.data - self.right_encoder_ticks
+        self.last_encoder_stamp = right_encoder_msg.header.stamp
+        
 
     def cbPredict(self, event):
-        #print("*** cbPredict ***")
-        current_time = rospy.get_time()
-        dt = current_time - self.t_last_update
-        self.t_last_update = current_time
-
         # first let's check if we moved at all, if not abort
         if self.right_encoder_ticks_delta == 0 and self.left_encoder_ticks_delta == 0:
             return
 
-        self.filter.predict(dt, self.left_encoder_ticks_delta, self.right_encoder_ticks_delta)
+        self.filter.predict(self.left_encoder_ticks_delta, self.right_encoder_ticks_delta)
         self.left_encoder_ticks += self.left_encoder_ticks_delta
         self.right_encoder_ticks += self.right_encoder_ticks_delta
         self.left_encoder_ticks_delta = 0
         self.right_encoder_ticks_delta = 0
 
-        self.publishEstimate(self.last_update_stamp)
-        #if not isinstance(self.last_update_stamp, float):
-        #    self.publishEstimate(self.last_update_stamp)
-        #else:
-        #    print("-------------- float {} !!!!".format(self.last_update_stamp))
+        self.publishEstimate(self.last_encoder_stamp)
 
     def cbProcessSegments(self, segment_list_msg):
         """Callback to process the segments
@@ -137,30 +131,19 @@ class LaneFilterNode(DTROS):
             segment_list_msg (:obj:`SegmentList`): message containing list of processed segments
 
         """
-
-        self.last_update_stamp = segment_list_msg.header.stamp
-        #print(self.last_update_stamp)
-
-        # Get actual timestamp for latency measurement
-        timestamp_before_processing = rospy.Time.now()
-        #print(timestamp_before_processing)
-
-        # Step 2: update
+        # update
         self.filter.update(segment_list_msg.segments)
 
+        # publish
         self.publishEstimate(segment_list_msg.header.stamp)
 
-    def publishEstimate(self, timestamp):
+    def publishEstimate(self, stamp):
 
         [d_max, phi_max] = self.filter.getEstimate()
-        # print "d_max = ", d_max
-        # print "phi_max = ", phi_max
 
         # build lane pose message to send
         lanePose = LanePose()
-        #if segment_list_msg is not None:
-        #print("segment_list_msg{}\n".format(segment_list_msg.header))
-        lanePose.header.stamp = timestamp
+        lanePose.header.stamp = stamp
         lanePose.d = d_max
         lanePose.phi = phi_max
         lanePose.in_lane = True

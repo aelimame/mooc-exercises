@@ -34,9 +34,9 @@ def histogram_prior(belief, grid_spec, mean_0, cov_0):
 # - Set a maximum for the diff_i and diff_j to avoid drastic changes due to noise in mesurements?
 # - Do this for the generate_measurement_likelihood() function too ?
 
-def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_spec, robot_spec, cov_mask):
+def histogram_predict(belief, left_encoder_ticks, right_encoder_ticks, grid_spec, robot_spec, cov_mask):
         belief_in = belief
-        delta_t = dt
+        #delta_t = dt # No more used after bug fix in lane_filter_node.py
         
         # These are maximum "jumps" in the i (delta_d) and j (delta_phi) values
         # We can either ignore the changes that are over these values or just clip them
@@ -61,18 +61,18 @@ def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_
         #print("delta_left_phi: {:0.3}, delta_right_phi: {:0.3}".format(delta_left_phi, delta_right_phi))
         
         # Forward speed v
-        v = (r/2) * (delta_right_phi + delta_left_phi) / delta_t
+        v = (r/2) * (delta_right_phi + delta_left_phi) #/ delta_t
         
         # Angular rate w
-        w = (r/(2*l)) * (delta_right_phi - delta_left_phi) / delta_t
+        w = (r/(2*l)) * (delta_right_phi - delta_left_phi) #/ delta_t
         
         #print("v: {:0.3}, w: {:0.3}".format(v, w))
         
         # From v and w we can derivate the and delta_d the delta_phi:
         v_lateral = v * np.sin(w) # This is lateral speed toward left relative to d=0 line
-        delta_d = v_lateral * delta_t # Convert to distance, this needs to be substracted from d_t
+        delta_d = v_lateral #* delta_t # Convert to distance, this needs to be substracted from d_t
         
-        delta_phi = w * delta_t # Convert to angle from rate, this needs to be added to phi_t
+        delta_phi = w #* delta_t # Convert to angle from rate, this needs to be added to phi_t
         
         #print("delta_d: {:0.3}, delta_phi: {:0.3}".format(delta_d, delta_phi))
         
@@ -143,7 +143,7 @@ def histogram_predict(belief, dt, left_encoder_ticks, right_encoder_ticks, grid_
 
 
         # Finally we are going to add some "noise" according to the process model noise
-        # This is implemented as a Gaussian blur
+        # This is implemented as a Gaussian blur over the histogram
         s_belief = np.zeros(belief.shape)
         gaussian_filter(p_belief, cov_mask, output=s_belief, mode="constant")
 
